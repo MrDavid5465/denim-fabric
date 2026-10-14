@@ -74,7 +74,9 @@ backend, [typiql-rs](https://github.com/MrDavid5465/typiql-rs), is a Rust
 dependency; denim's README has the backend these setups run against.
 
 `SidebarShell`'s master-detail needs a typical-admin-fabric whose `List`
-has the `basePath` prop (added alongside this package).
+has the `basePath`, `selectOnClick`, `selectedKey` and `labels` props and
+whose `Links` has `hideBack`, and the typical-admin with `labels.ts` (all
+added alongside this package).
 
 ## Peer npm packages
 
@@ -387,6 +389,12 @@ Compared with a plain screen, the only change is `ReactiveAdmin` ->
 the same over the `Profile` type. Set `list.buttons.add` for an Add button
 in the list pane.
 
+The headings read "Devices", "Device", "Edit device", "New device":
+`AdminMasterDetail` uses typical-admin's display `labels`, kept apart from
+the GraphQL names in `name`. Override any of them, e.g.
+`labels={{ singular: 'Rig device', plural: 'Rig devices', showHeading: '{singular} details' }}`
+(the `reactive-admin` skill lists the keys).
+
 **`src/rigStatus.ts`**: the status-dot hook (called once per application).
 
 ```ts
@@ -494,6 +502,14 @@ pass `applicationFields=""` if your backend doesn't have them.
   and the browser's Back and Forward buttons work at every width. The back
   bar is the browser's Back when that leads to the same place, so it never
   piles up history.
+- In `AdminMasterDetail` the list stays mounted while a detail opens and
+  closes (on a phone too, hidden), so its page, sort, filters and scroll
+  survive, and the row just closed can be opened again. The row in the URL
+  is highlighted; a deep link, Back/Forward or a new record turns the list
+  to that row's page and scrolls it into view.
+- On a phone the back bar is the only back control: the detail's own back
+  arrow is dropped (its Edit and Delete stay), and from an edit page the
+  bar goes up to the record, then to the list.
 - On a phone, `/` is the menu rather than the launch page (wide and medium
   layouts still redirect `/` to the launch page). An application's `links`
   show as touch pills under the back bar.
@@ -557,11 +573,13 @@ export default function ZonesApp() {
 | `title`, `listActions` | the list pane's heading and controls |
 | `empty` | the detail pane while nothing is selected |
 | `listWidth` | list pane width in px (default 360; 85% of it on medium) |
+| `back` | where a phone's back bar goes while a detail is open, `{ label, to }`; default the list (`title`, `listUrl`) |
 
 `useDetailRoute(patterns)` defaults to ReactiveAdmin's `['new', ':id/show',
 ':id/edit']`. `AdminMasterDetail` also takes `components` (detail-pane slot
-overrides), `callBacks`, `pageSize`, `title`, `listProps` (passed to the
-`List`: `queryResultKey`, `idField`, ...) and `empty`.
+overrides), `callBacks`, `pageSize`, `labels`, `title` (default the list
+heading, `labels.plural`), `listProps` (passed to the `List`:
+`queryResultKey`, `idField`, ...) and `empty`.
 
 ## Write your own skin
 
@@ -608,6 +626,12 @@ README):
   900px and 390px with touch emulation (drill-in, back bar, browser Back and
   Forward, deep links); a non-list app filling the area; re-visiting apps;
   Settings from the footer; 44px targets; visible focus. No console errors.
+- Master-detail: one back control on a phone (Edit and Delete kept); display
+  labels; page, sort and filter kept across opening and closing a detail
+  (and a save in it) at 1400px, 900px and 390px, with the closed row
+  reopening; the URL's row highlighted on a deep link, a row switch, Back
+  and a new record; icon buttons 44px with a coarse pointer and 32px with
+  a mouse. TopBarShell stayed pixel-identical.
 
 ## What's in here
 

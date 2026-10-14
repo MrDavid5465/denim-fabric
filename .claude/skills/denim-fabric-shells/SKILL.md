@@ -57,7 +57,9 @@ buttons and your own `confirmAsync()` calls share it).
 ### Touch and keyboard
 
 The rig touchscreen and phones are first-class: keep every new control at
-least 44px, never hide an action behind hover, and keep a visible
+least 44px (typical-admin-fabric's icon buttons grow to 44px under
+`@media (pointer: coarse)`; reuse its `lib/touch.ts` styles), never hide an
+action behind hover, and keep a visible
 `:focus-visible` outline (`2px solid palette.themePrimary`). Use `Link`s for
 navigation (they are focusable and work with the URL), not click handlers on
 divs.
@@ -76,6 +78,7 @@ export default function DevicesAdmin() {
       name={{ singular: 'Device', plural: 'Devices' }}
       schemaDefinition={schemaDefinition}    // set list.buttons.add for an Add button in the list pane
       listColumns={['name', 'kind']}         // compact list: a subset of list.columns
+      labels={{ singular: 'Rig device' }}    // optional: display text, see below
     />
   );
 }
@@ -89,11 +92,23 @@ export default function DevicesAdmin() {
   (`components={{ show: ..., edit: ... }}`), `callBacks` work as usual.
 - `listProps` passes extra props to the `List` (`queryResultKey`,
   `idField`, `columnSelectable`, `storageKey`).
-- Selection is the URL. Deep links, reload and browser Back/Forward work;
-  on a phone the back bar is labelled with the list title.
-- The list remounts when the detail closes (so the last row can be chosen
-  again: Fluent's DetailsList only navigates when the active row changes).
-  Its paging/filter state resets at that moment.
+- Headings come from typical-admin's display `labels`, not the GraphQL
+  names: "Devices", "Device", "Edit device", "New device" by default (a
+  plain ReactiveAdmin keeps "Listing Devices" unless it gets `labels`).
+  Override any key (`singular`, `plural`, `listHeading`, `showHeading`,
+  `newHeading`, `editHeading`, ...; see the `reactive-admin` skill).
+- Selection is the URL. Deep links, reload and browser Back/Forward work.
+  The list highlights the row in the URL (`List`'s `selectedKey`) and turns
+  to its page on a deep link, Back/Forward or a new record.
+- The list stays mounted while details open and close (hidden under the
+  detail on a phone): page, sort, filters and scroll survive, and rows open
+  on click (`List`'s `selectOnClick`), so the row just closed opens again.
+- On a phone the back bar is the only back control: the slots' own back
+  arrow is dropped (`Links`' `hideBack`, also passed to a `links`
+  override); Edit and Delete stay. The bar reads the list title, or the
+  record (`labels.singular`) on an edit page, which it goes up to.
+- MasterDetail's `back={{ label, to }}` sets that phone back target for
+  your own lists.
 
 ### Anything else
 

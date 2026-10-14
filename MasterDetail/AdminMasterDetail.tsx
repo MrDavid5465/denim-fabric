@@ -2,9 +2,13 @@
 // list pane and its show/new/edit slots in the detail pane. Same props as
 // ReactiveAdmin, plus a few for the list pane.
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import ReactiveAdmin from '../../typical-admin-fabric';
 import List from '../../typical-admin-fabric/List';
-import type { IComponents, IDispatcher, ITACallBacks, ITASchema, Name } from '../../typical-admin';
+import Links from '../../typical-admin-fabric/Links';
+import { label, resolveLabels } from '../../typical-admin';
+import type { IComponents, IDispatcher, ITACallBacks, ITALabels, ITASchema, Name } from '../../typical-admin';
+import { useBreakpoint, useShellLayout } from '../SidebarShell/layout';
 import { MasterDetail } from './MasterDetail';
 import { useDetailRoute } from './useDetailRoute';
 
@@ -16,7 +20,14 @@ export interface AdminMasterDetailProps {
   components?: Omit<IComponents, 'list'>;
   callBacks?: ITACallBacks;
   pageSize?: number;
-  /** Heading of the list pane. Default `name.plural`. */
+  /**
+   * Display text, separate from `name`'s GraphQL stems (typical-admin's
+   * labels.ts). Here the readable defaults always apply: "Devices",
+   * "Device", "Edit device", "New device". Override any of them, or set
+   * `singular`/`plural` when the type name doesn't read well.
+   */
+  labels?: ITALabels;
+  /** Heading of the list pane. Default the list heading (`labels.plural`). */
   title?: string;
   /** Compact list: only these columns of `schemaDefinition.list.columns`. */
   listColumns?: string[];
@@ -36,6 +47,7 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
   components,
   callBacks,
   pageSize = 20,
+  labels: labelsProp,
   title,
   listColumns,
   listProps,
@@ -43,6 +55,12 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
   listWidth,
 }) => {
   const route = useDetailRoute();
+  const { pathname } = useLocation();
+  const shell = useShellLayout();
+  const ownLayout = useBreakpoint();
+  const narrow = (shell?.layout ?? ownLayout) === 'narrow';
+  const labels = React.useMemo(() => labelsProp ?? {}, [labelsProp]);
+  const l = resolveLabels(name, labels);
 
   const listSchema = React.useMemo(() => {
     if (!listColumns) return schemaDefinition.list;
@@ -54,35 +72,45 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
     return { ...schemaDefinition.list, columns };
   }, [schemaDefinition.list, listColumns]);
 
-  // The Fluent List navigates on DetailsList's onActiveItemChanged, which
-  // doesn't fire for the row that is already active. With the list staying
-  // on screen, choosing the same row again after closing its detail would
-  // do nothing, so the list is remounted each time the detail closes.
-  const [listKey, setListKey] = React.useState(0);
-  const wasSelected = React.useRef(route.selected);
-  React.useEffect(() => {
-    if (wasSelected.current && !route.selected) setListKey(k => k + 1);
-    wasSelected.current = route.selected;
-  }, [route.selected]);
+  // On a phone the back bar above the detail (the shell's, or MasterDetail's
+  // own) already goes up a level, so the slots' own back arrow is dropped;
+  // Edit and Delete stay. A `links` override gets `hideBack` too.
+  const detailComponents = React.useMemo(() => {
+    const own = { ...components, list: NoList };
+    if (!narrow) return own;
+    const LinksSlot = components?.links ?? Links;
+    const NoBackLinks: React.FC<any> = props => <LinksSlot {...props} hideBack />;
+    return { ...own, links: NoBackLinks };
+  }, [components, narrow]);
 
-  const detailComponents = React.useMemo(() => ({ ...components, list: NoList }), [components]);
+  // The edit page's "up" is its record, not the list.
+  const back =
+    route.id && /\/edit\/?$/.test(pathname)
+      ? { label: l.singular, to: `${route.basePath}/${encodeURIComponent(route.id)}/show` }
+      : undefined;
 
   return (
     <MasterDetail
-      title={title ?? name.plural}
+      title={title ?? label(l, 'listHeading')}
       selected={route.selected}
       listUrl={route.basePath}
+      back={back}
       empty={empty}
       listWidth={listWidth}
       list={
+        // Opens rows on click (so a row can be reopened after its detail
+        // closed) and highlights the one in the URL. The list stays mounted,
+        // keeping its page, sort and filters.
         <List
-          key={listKey}
           dispatcher={dispatcher}
           name={name}
           schemaDefinition={listSchema}
           pageSize={pageSize}
           hideHeader
           basePath={route.basePath}
+          labels={labels}
+          selectOnClick
+          selectedKey={route.id ?? null}
           {...listProps}
         />
       }
@@ -93,6 +121,7 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
           schemaDefinition={schemaDefinition}
           components={detailComponents}
           callBacks={callBacks}
+          labels={labels}
         />
       }
     />

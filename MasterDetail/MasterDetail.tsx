@@ -11,6 +11,7 @@ import { FontIcon, mergeStyleSets, useTheme } from '@fluentui/react';
 import { useNavigate } from 'react-router-dom';
 import { FullBleed } from '../SidebarShell/FullBleed';
 import { useBreakpoint, useShellLayout } from '../SidebarShell/layout';
+import type { IBackTarget } from '../SidebarShell/layout';
 
 export interface MasterDetailProps {
   /** The list (master) pane's content. */
@@ -29,6 +30,12 @@ export interface MasterDetailProps {
   empty?: React.ReactNode;
   /** List pane width in px on wide screens (medium screens use 85% of it). Default 360. */
   listWidth?: number;
+  /**
+   * Where a phone's back bar goes while a detail is open, when that isn't the
+   * list: e.g. from an edit page up to its record. Default `{ label: title,
+   * to: listUrl }`.
+   */
+  back?: IBackTarget;
 }
 
 const getStyles = (theme: ReturnType<typeof useTheme>) =>
@@ -91,6 +98,7 @@ export const MasterDetail: React.FC<MasterDetailProps> = ({
   listActions,
   empty,
   listWidth = 360,
+  back,
 }) => {
   const theme = useTheme();
   const s = React.useMemo(() => getStyles(theme), [theme]);
@@ -99,16 +107,27 @@ export const MasterDetail: React.FC<MasterDetailProps> = ({
   const layout = shell?.layout ?? ownLayout;
   const navigate = useNavigate();
   const narrow = layout === 'narrow';
-  const backLabel = title ?? 'Back';
+  const backLabel = back?.label ?? title ?? 'Back';
+  const backTo = back?.to ?? listUrl;
 
   // On a phone, inside SidebarShell, the shell's back bar leads to the list
   // while a detail is open (instead of to the menu).
   const setBack = shell?.setBack;
   React.useLayoutEffect(() => {
     if (!setBack || !narrow || !selected) return;
-    setBack({ label: backLabel, to: listUrl });
+    setBack({ label: backLabel, to: backTo });
     return () => setBack(null);
-  }, [setBack, narrow, selected, backLabel, listUrl]);
+  }, [setBack, narrow, selected, backLabel, backTo]);
+
+  // On a phone the list stays mounted (hidden) under an open detail, so its
+  // page, sort and filters are still there on the way back. The pane
+  // scrolls both, so the list's scroll position is put aside meanwhile.
+  const paneRef = React.useRef<HTMLDivElement>(null);
+  const listScroll = React.useRef(0);
+  React.useLayoutEffect(() => {
+    const pane = paneRef.current;
+    if (pane && narrow) pane.scrollTop = selected ? 0 : listScroll.current;
+  }, [narrow, selected]);
 
   const header = (title || listActions) && (
     <div className={s.listHeader}>
@@ -120,25 +139,28 @@ export const MasterDetail: React.FC<MasterDetailProps> = ({
   if (narrow) {
     return (
       <FullBleed>
-        <div className={s.narrowPane}>
-          {selected ? (
+        <div
+          className={s.narrowPane}
+          ref={paneRef}
+          onScroll={selected ? undefined : e => (listScroll.current = e.currentTarget.scrollTop)}
+        >
+          {selected && (
             <>
               {!shell && (
-                <button type="button" className={s.backBar} onClick={() => navigate(listUrl)}>
+                <button type="button" className={s.backBar} onClick={() => navigate(backTo)}>
                   <FontIcon iconName="ChevronLeft" aria-hidden />
                   {backLabel}
                 </button>
               )}
               {detail}
             </>
-          ) : (
-            <>
-              {/* Inside SidebarShell the bar above already shows the app's
-                  name; keep only the list's own actions. */}
-              {shell ? listActions && <div className={s.listHeader}>{listActions}</div> : header}
-              {list}
-            </>
           )}
+          <div hidden={selected}>
+            {/* Inside SidebarShell the bar above already shows the app's
+                name; keep only the list's own actions. */}
+            {shell ? listActions && <div className={s.listHeader}>{listActions}</div> : header}
+            {list}
+          </div>
         </div>
       </FullBleed>
     );
