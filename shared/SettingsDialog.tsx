@@ -1,6 +1,6 @@
 // The cross-feature Settings dialog, in Fluent: the core's useSettingsForm()
 // does the work (General schema, extension tabs, one merged save); this file
-// only draws it. Both shells use it.
+// only draws it. Every bar uses it.
 import React from 'react';
 import { Modal, Pivot, PivotItem, PrimaryButton, DefaultButton, Stack, getTheme, keyframes } from '@fluentui/react';
 import { motionTokens } from '@fluentui/react-motion';
@@ -108,7 +108,10 @@ const SettingsContent: React.FC<{ onDismiss: () => void }> = React.memo(function
           {form.tabs.length === 0 ? (
             general
           ) : (
-            <Pivot>
+            // Tabs that don't fit (a phone, or an app with many extension
+            // tabs) go into an overflow menu; without it the Pivot scrolls
+            // sideways and takes the selected tab's content off-screen.
+            <Pivot overflowBehavior="menu" overflowAriaLabel="More settings tabs">
               <PivotItem headerText="General" itemKey="general">
                 {general}
               </PivotItem>
