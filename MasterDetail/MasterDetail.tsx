@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { FullBleed } from '../SidebarShell/FullBleed';
 import { useBreakpoint, useShellLayout } from '../SidebarShell/layout';
 import type { IBackTarget } from '../SidebarShell/layout';
+import { DrillIn } from '../shared/motion';
 
 export interface MasterDetailProps {
   /** The list (master) pane's content. */
@@ -129,6 +130,19 @@ export const MasterDetail: React.FC<MasterDetailProps> = ({
     if (pane && narrow) pane.scrollTop = selected ? 0 : listScroll.current;
   }, [narrow, selected]);
 
+  // Phone drill-in: the detail slides in from the right when it opens (not
+  // when the page opens on it), the list from the left on the way back.
+  const mounted = React.useRef(false);
+  React.useEffect(() => {
+    mounted.current = true;
+  }, []);
+  const [seenSelected, setSeenSelected] = React.useState(selected);
+  const [returns, setReturns] = React.useState(0);
+  if (seenSelected !== selected) {
+    setSeenSelected(selected);
+    if (!selected) setReturns(n => n + 1);
+  }
+
   const header = (title || listActions) && (
     <div className={s.listHeader}>
       {title && <h2 className={s.listTitle}>{title}</h2>}
@@ -145,22 +159,26 @@ export const MasterDetail: React.FC<MasterDetailProps> = ({
           onScroll={selected ? undefined : e => (listScroll.current = e.currentTarget.scrollTop)}
         >
           {selected && (
-            <>
-              {!shell && (
-                <button type="button" className={s.backBar} onClick={() => navigate(backTo)}>
-                  <FontIcon iconName="ChevronLeft" aria-hidden />
-                  {backLabel}
-                </button>
-              )}
-              {detail}
-            </>
+            <DrillIn from="right" animateMount={mounted.current}>
+              <div>
+                {!shell && (
+                  <button type="button" className={s.backBar} onClick={() => navigate(backTo)}>
+                    <FontIcon iconName="ChevronLeft" aria-hidden />
+                    {backLabel}
+                  </button>
+                )}
+                {detail}
+              </div>
+            </DrillIn>
           )}
-          <div hidden={selected}>
-            {/* Inside SidebarShell the bar above already shows the app's
-                name; keep only the list's own actions. */}
-            {shell ? listActions && <div className={s.listHeader}>{listActions}</div> : header}
-            {list}
-          </div>
+          <DrillIn from="left" animateMount={false} replayKey={returns}>
+            <div hidden={selected}>
+              {/* Inside SidebarShell the bar above already shows the app's
+                  name; keep only the list's own actions. */}
+              {shell ? listActions && <div className={s.listHeader}>{listActions}</div> : header}
+              {list}
+            </div>
+          </DrillIn>
         </div>
       </FullBleed>
     );

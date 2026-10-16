@@ -10,8 +10,8 @@
 // There are no global action buttons: each application owns its own UI.
 import React from 'react';
 import { Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
-import { FontIcon, Panel, PanelType, mergeStyleSets, useTheme } from '@fluentui/react';
-import type { ITheme } from '@fluentui/react';
+import { FontIcon, Panel, PanelType, mergeStyles, mergeStyleSets, useTheme } from '@fluentui/react';
+import type { IPanelStyleProps, IPanelStyles, ITheme } from '@fluentui/react';
 import {
   DenimProvider,
   DenimRoutes,
@@ -20,12 +20,16 @@ import {
   splitShellProps,
   useDenim,
   useNav,
+  useReducedMotion,
 } from '../../denim';
 import { Splash } from '../shared/Splash';
 import { SettingsDialog } from '../shared/SettingsDialog';
 import { FluentThemeRoot, useFluentTheme } from '../shared/theme';
 import type { ThemeBuilder } from '../themes';
 import DenimLogo, { IconProps } from '../shared/Logo';
+import { PerfProfiler, perfAnimStart, perfCommitted, perfStart } from '../shared/perf';
+import { DrillIn, ShellMotionProvider } from '../shared/motion';
+import { useSidebarSlide } from './slide';
 import { Sidebar, TOUCH } from './Sidebar';
 import {
   DEFAULT_BREAKPOINTS,
@@ -63,6 +67,31 @@ const readCollapsed = () => {
   }
 };
 
+// The medium layout's overlay: the sidebar is the whole panel, so no Fluent
+// header strip, and the sidebar (not the panel) scrolls, so its footer stays
+// on screen. Fluent's own slide (and its scrim's fade) is kept: with the
+// shell's re-renders gone (ShellBody and routes are memoized) it measures
+// smooth. Under reduced motion there is none, and the panel hides at once
+// on close instead of staying up for Fluent's 200ms close timer.
+const overlayLayout: Partial<IPanelStyles> = {
+  commands: { display: 'none' },
+  navigation: { display: 'none' },
+  contentInner: { height: '100%' },
+  scrollableContent: { height: '100%', overflow: 'hidden' },
+  content: { padding: 0, height: '100%' },
+};
+const overlayPanelStyles = () => overlayLayout;
+const overlayPanelStylesReduced = ({ isOpen }: IPanelStyleProps): Partial<IPanelStyles> => ({
+  ...overlayLayout,
+  root: !isOpen && { visibility: 'hidden' },
+  overlay: { animation: 'none' },
+  main: { animation: 'none' },
+});
+
+/** Full sidebar width, and the icon rail's. The wide panel slides by the difference. */
+const FULL_WIDTH = 264;
+const RAIL_WIDTH = 60;
+
 const getShellStyles = (theme: ITheme, narrow: boolean) =>
   mergeStyleSets({
     root: {
@@ -74,7 +103,12 @@ const getShellStyles = (theme: ITheme, narrow: boolean) =>
       background: theme.semanticColors.bodyBackground,
       color: theme.semanticColors.bodyText,
     },
-    side: { flex: 'none', height: '100%' },
+    side: { flex: 'none', height: '100%', position: 'relative' },
+    // The wide layout's full panel and rail, positioned in the side column
+    // so both can be there during a slide without changing its width.
+    sidePanel: { position: 'absolute', top: 0, left: 0, height: '100%', width: FULL_WIDTH },
+    sideRail: { position: 'absolute', top: 0, left: 0, height: '100%', width: RAIL_WIDTH, zIndex: 1 },
+    menuScreen: { flex: 1, minHeight: 0 },
     main: {
       flex: 1,
       minWidth: 0,
@@ -209,7 +243,10 @@ const SidebarLayout: React.FC<OwnProps> = ({
     if (layout !== 'medium') setOverlayOpen(false);
   }, [layout]);
 
-  const toggleCollapsed = () =>
+  // Stable callbacks: ShellBody is memoized, so opening Settings (state
+  // here) doesn't re-render the sidebar and the whole page under it.
+  const toggleCollapsed = React.useCallback(() => {
+    perfStart('sidebar-toggle');
     setCollapsed(c => {
       try {
         localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1');
@@ -218,6 +255,17 @@ const SidebarLayout: React.FC<OwnProps> = ({
       }
       return !c;
     });
+  }, []);
+  const openSettings = React.useCallback(() => {
+    perfStart('settings-open');
+    setSettingsOpen(true);
+  }, []);
+  const closeSettings = React.useCallback(() => {
+    perfStart('settings-close');
+    setSettingsOpen(false);
+  }, []);
+  React.useEffect(() => perfCommitted('sidebar-toggle'), [collapsed]);
+  React.useEffect(() => perfCommitted(settingsOpen ? 'settings-open' : 'settings-close'), [settingsOpen]);
 
   if (status !== 'ready') {
     return RootComponent ? (
@@ -231,6 +279,7 @@ const SidebarLayout: React.FC<OwnProps> = ({
 
   return (
     <FluentThemeRoot themeKey={themeKey} themes={themes}>
+      <ShellMotionProvider>
       <ShellLayoutContext.Provider value={layoutContext}>
         <ShellBody
           layout={layout}
@@ -239,15 +288,18 @@ const SidebarLayout: React.FC<OwnProps> = ({
           onToggleCollapsed={toggleCollapsed}
           overlayOpen={overlayOpen}
           setOverlayOpen={setOverlayOpen}
-          openSettings={() => setSettingsOpen(true)}
+          openSettings={openSettings}
           back={back}
           title={title}
           Brand={Brand}
           SidebarFooter={SidebarFooter}
           welcome={welcome}
         />
-        <SettingsDialog isOpen={settingsOpen} onDismiss={() => setSettingsOpen(false)} />
+        <PerfProfiler id="settings-dialog">
+          <SettingsDialog isOpen={settingsOpen} onDismiss={closeSettings} />
+        </PerfProfiler>
       </ShellLayoutContext.Provider>
+      </ShellMotionProvider>
     </FluentThemeRoot>
   );
 };
@@ -267,7 +319,9 @@ interface BodyProps {
   welcome?: React.ReactNode;
 }
 
-const ShellBody: React.FC<BodyProps> = ({
+// Memoized: SidebarLayout re-renders for Settings and theme state that the
+// body doesn't use.
+const ShellBody: React.FC<BodyProps> = React.memo(function ShellBody({
   layout,
   showChrome,
   collapsed,
@@ -280,7 +334,7 @@ const ShellBody: React.FC<BodyProps> = ({
   Brand,
   SidebarFooter,
   welcome,
-}) => {
+}) {
   const theme = useTheme();
   const nav = useNav();
   const { RootComponent } = useDenim();
@@ -288,13 +342,67 @@ const ShellBody: React.FC<BodyProps> = ({
   const s = React.useMemo(() => getShellStyles(theme, narrow), [theme, narrow]);
   const { goUp } = React.useContext(ShellLayoutContext)!;
 
-  const routes = (
-    <DenimRoutes
-      welcome={welcome ?? <h1>Choose an application from the menu.</h1>}
-      wrap={content => <div className={s.page}>{content}</div>}
-    />
+  // One element for the life of the layout, so toggling the sidebar or the
+  // overlay re-renders the sidebar only, not the page in the content area.
+  const routes = React.useMemo(
+    () => (
+      <PerfProfiler id="shell-content">
+        <DenimRoutes
+          welcome={welcome ?? <h1>Choose an application from the menu.</h1>}
+          wrap={content => <div className={s.page}>{content}</div>}
+        />
+      </PerfProfiler>
+    ),
+    [welcome, s.page],
   );
+  const reduced = useReducedMotion();
+  const openOverlay = React.useCallback(() => {
+    perfStart('overlay-open');
+    if (!reduced) perfAnimStart('overlay-open', { untilIdle: true });
+    setOverlayOpen(true);
+  }, [setOverlayOpen, reduced]);
+  const closeOverlay = React.useCallback(() => {
+    perfStart('overlay-close');
+    if (!reduced) perfAnimStart('overlay-close', { untilIdle: true });
+    setOverlayOpen(false);
+  }, [setOverlayOpen, reduced]);
+  React.useEffect(() => perfCommitted(overlayOpen ? 'overlay-open' : 'overlay-close'), [overlayOpen]);
 
+  // Phone drill-in animates panes that mount after the shell's first render
+  // (not the page the app opened on, nor after a theme change's remount).
+  const shellMounted = React.useRef(false);
+  React.useEffect(() => {
+    shellMounted.current = true;
+  }, []);
+
+  // The wide sidebar's slide (see slide.ts): the panel and the page move
+  // together, and the layout changes once, when they arrive.
+  const sideRef = React.useRef<HTMLDivElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const railRef = React.useRef<HTMLDivElement>(null);
+  const mainRef = React.useRef<HTMLElement>(null);
+  const { layoutCollapsed, sliding } = useSidebarSlide({
+    collapsed,
+    enabled: layout === 'wide' && !reduced,
+    delta: FULL_WIDTH - RAIL_WIDTH,
+    panelRef,
+    railRef,
+    mainRef,
+  });
+  const toggleHadFocus = React.useRef(false);
+  const onToggle = React.useCallback(() => {
+    toggleHadFocus.current = !!sideRef.current?.contains(document.activeElement);
+    onToggleCollapsed();
+  }, [onToggleCollapsed]);
+  // The toggle that was pressed may be in the panel that just left: keep
+  // focus on the toggle that is there now.
+  React.useEffect(() => {
+    if (!toggleHadFocus.current) return;
+    toggleHadFocus.current = false;
+    sideRef.current
+      ?.querySelector<HTMLElement>(`button[aria-label="${collapsed ? 'Expand menu' : 'Collapse menu'}"]`)
+      ?.focus();
+  }, [collapsed]);
   // Kiosk routes and landing pages: content only.
   if (!showChrome) {
     return <div className={s.root}><main className={s.main}>{routes}</main></div>;
@@ -309,7 +417,11 @@ const ShellBody: React.FC<BodyProps> = ({
     if (!app && !RootComponent) {
       return (
         <div className={s.root}>
-          <Sidebar variant="screen" {...sidebarProps} />
+          <DrillIn from="left" animateMount={shellMounted.current}>
+            <div className={s.menuScreen}>
+              <Sidebar variant="screen" {...sidebarProps} />
+            </div>
+          </DrillIn>
         </div>
       );
     }
@@ -332,7 +444,9 @@ const ShellBody: React.FC<BodyProps> = ({
                 <Link
                   key={l.path}
                   to={nav.linkUrl(app, l)}
-                  className={`${s.pill} ${active ? s.pillActive : ''}`}
+                  // One merged class: with two, which wins depends on the order
+                  // Fluent inserted the rules, which a theme change reshuffles.
+                  className={mergeStyles(s.pill, active && s.pillActive)}
                   aria-current={active ? 'page' : undefined}
                 >
                   {l.text}
@@ -341,59 +455,80 @@ const ShellBody: React.FC<BodyProps> = ({
             })}
           </div>
         )}
-        <main className={s.main}>{routes}</main>
+        <DrillIn from="right" animateMount={shellMounted.current}>
+          <main className={s.main}>{routes}</main>
+        </DrillIn>
       </div>
     );
   }
 
-  const rail = layout === 'medium' || collapsed;
-  return (
-    <div className={s.root}>
-      <div className={s.side} style={{ width: rail ? 60 : 264 }}>
-        <Sidebar
-          variant={rail ? 'rail' : 'full'}
-          {...sidebarProps}
-          onToggle={layout === 'medium' ? () => setOverlayOpen(true) : onToggleCollapsed}
-          toggleLabel={rail ? 'Expand menu' : 'Collapse menu'}
-        />
-      </div>
-      <main className={s.main}>{routes}</main>
-      {layout === 'medium' && (
+  if (layout === 'medium') {
+    return (
+      <div className={s.root}>
+        <div className={s.side} style={{ width: RAIL_WIDTH }}>
+          <PerfProfiler id="shell-sidebar">
+            <Sidebar variant="rail" {...sidebarProps} onToggle={openOverlay} toggleLabel="Expand menu" />
+          </PerfProfiler>
+        </div>
+        <main className={s.main}>{routes}</main>
         <Panel
           isOpen={overlayOpen}
           isLightDismiss
           hasCloseButton={false}
           type={PanelType.customNear}
           customWidth="300px"
-          onDismiss={() => setOverlayOpen(false)}
+          onDismiss={closeOverlay}
           onRenderNavigation={() => null}
-          // The sidebar is the whole panel: no Fluent header strip, and the
-          // sidebar (not the panel) scrolls, so its footer stays on screen.
-          styles={{
-            commands: { display: 'none' },
-            navigation: { display: 'none' },
-            contentInner: { height: '100%' },
-            scrollableContent: { height: '100%', overflow: 'hidden' },
-            content: { padding: 0, height: '100%' },
-          }}
+          styles={reduced ? overlayPanelStylesReduced : overlayPanelStyles}
           aria-label="Menu"
         >
           <Sidebar
             variant="full"
             {...sidebarProps}
-            onToggle={() => setOverlayOpen(false)}
+            onToggle={closeOverlay}
             toggleLabel="Close menu"
-            onNavigate={() => setOverlayOpen(false)}
+            onNavigate={closeOverlay}
             onOpenSettings={() => {
               setOverlayOpen(false);
               openSettings();
             }}
           />
         </Panel>
-      )}
+      </div>
+    );
+  }
+
+  // Wide. Both the rail and the full panel are positioned in the side
+  // column, whose width is the layout's: the rail while collapsed, the
+  // panel while expanded, both while sliding (the rail on top, fading).
+  return (
+    <div className={s.root}>
+      <div
+        ref={sideRef}
+        className={s.side}
+        style={{ width: layoutCollapsed ? RAIL_WIDTH : FULL_WIDTH, zIndex: sliding ? 2 : undefined }}
+      >
+        {(!layoutCollapsed || sliding) && (
+          <div ref={panelRef} className={s.sidePanel}>
+            <PerfProfiler id="shell-sidebar">
+              <Sidebar variant="full" {...sidebarProps} onToggle={onToggle} toggleLabel="Collapse menu" />
+            </PerfProfiler>
+          </div>
+        )}
+        {(layoutCollapsed || sliding) && (
+          <div ref={railRef} className={s.sideRail}>
+            <PerfProfiler id="shell-sidebar">
+              <Sidebar variant="rail" {...sidebarProps} onToggle={onToggle} toggleLabel="Expand menu" />
+            </PerfProfiler>
+          </div>
+        )}
+      </div>
+      <main ref={mainRef} className={s.main}>
+        {routes}
+      </main>
     </div>
   );
-};
+});
 
 /**
  * The sidebar shell. Takes every <DenimProvider> prop plus its own. When the

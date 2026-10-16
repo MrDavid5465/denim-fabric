@@ -3,6 +3,7 @@
 // ReactiveAdmin, plus a few for the list pane.
 import React from 'react';
 import { useLocation } from 'react-router-dom';
+import { mergeStyles, useTheme } from '@fluentui/react';
 import ReactiveAdmin from '../../typical-admin-fabric';
 import List from '../../typical-admin-fabric/List';
 import Links from '../../typical-admin-fabric/Links';
@@ -11,6 +12,8 @@ import type { IComponents, IDispatcher, ITACallBacks, ITALabels, ITASchema, Name
 import { useBreakpoint, useShellLayout } from '../SidebarShell/layout';
 import { MasterDetail } from './MasterDetail';
 import { useDetailRoute } from './useDetailRoute';
+import { useReducedMotion } from '../../denim';
+import { SlidingIndicator } from '../shared/motion';
 
 export interface AdminMasterDetailProps {
   dispatcher: IDispatcher;
@@ -62,6 +65,36 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
   const labels = React.useMemo(() => labelsProp ?? {}, [labelsProp]);
   const l = resolveLabels(name, labels);
 
+  // The selected row's highlight is one indicator behind the rows that
+  // slides to the next selection, and the only thing drawing it. Rows are
+  // transparent unless hovered (their white is the pane's own background);
+  // the selected row is transparent even hovered, so the row just clicked
+  // doesn't show the selection before the indicator gets there. Other rows
+  // keep Fluent's hover colour, and Fluent's separators and focus outline
+  // still draw on top.
+  const theme = useTheme();
+  const reduced = useReducedMotion();
+  const rowsRef = React.useRef<HTMLDivElement>(null);
+  const rowsClass = React.useMemo(
+    () =>
+      mergeStyles({
+        position: 'relative',
+        isolation: 'isolate',
+        selectors: {
+          '& .ms-DetailsRow:not(:hover), & .ms-DetailsRow.is-selected, & .ms-DetailsRow.is-selected:hover': {
+            background: 'transparent',
+          },
+          // Fluent fades rows in when they mount (page, sort, filter).
+          ...(reduced ? { '& .ms-DetailsRow': { animation: 'none' } } : {}),
+        },
+      }),
+    [reduced],
+  );
+  const indicatorClass = React.useMemo(
+    () => mergeStyles({ background: theme.palette.neutralLight }),
+    [theme],
+  );
+
   const listSchema = React.useMemo(() => {
     if (!listColumns) return schemaDefinition.list;
     const columns: Record<string, any> = {};
@@ -101,6 +134,13 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
         // Opens rows on click (so a row can be reopened after its detail
         // closed) and highlights the one in the URL. The list stays mounted,
         // keeping its page, sort and filters.
+        <div className={rowsClass} ref={rowsRef}>
+        <SlidingIndicator
+          containerRef={rowsRef}
+          selector=".ms-DetailsRow.is-selected"
+          className={indicatorClass}
+          perfName="list-selection"
+        />
         <List
           dispatcher={dispatcher}
           name={name}
@@ -113,6 +153,7 @@ export const AdminMasterDetail: React.FC<AdminMasterDetailProps> = ({
           selectedKey={route.id ?? null}
           {...listProps}
         />
+        </div>
       }
       detail={
         <ReactiveAdmin

@@ -69,6 +69,14 @@ start from it, or from a copy of a Fluent shell.
   `:focus-visible` outline.
 - **No global action buttons**: apps own their toolbars.
 - **Settings are global preferences**; app config stays in the app.
+- **Motion that stays cheap**: animate `transform`/`opacity` of one element,
+  never layout; keep the layout at its start state during a slide and
+  change it once at the end. Without GPU compositing (WebKitGTK) every
+  frame repaints what moves. A sliding selection is one indicator element
+  and the items paint no selected background (not even hovered), or two
+  highlights show mid-slide. Turn everything off while
+  `useReducedMotion()` is true. (SidebarShell's `slide.ts` and
+  `shared/motion.tsx`.)
 
 ## Verify
 

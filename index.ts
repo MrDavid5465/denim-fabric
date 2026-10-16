@@ -51,6 +51,9 @@ export type { ConfirmOptions } from './shared/ConfirmDialog';
 export { default as Logo } from './shared/Logo';
 export type { IconProps } from './shared/Logo';
 export { default as Photo } from './Photo';
+export { ShellMotionProvider, SlidingIndicator, DrillIn } from './shared/motion';
+export type { SlidingIndicatorProps, DrillInProps } from './shared/motion';
+export { perfEnabled, perfStart, perfAnimStart, perfAnimEnd, perfMotionProps } from './shared/perf';
 
 // Fluent themes for the core's theme keys
 export { THEMES, buildTheme, PALETTES } from './themes';

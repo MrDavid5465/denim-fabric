@@ -41,26 +41,35 @@ export function applyTheme(
 
 /**
  * Applies the current settings' theme. Call it in the component that renders
- * the shell's whole tree, and wrap that tree in <FluentThemeRoot>.
+ * the shell's whole tree, and wrap that tree in <FluentThemeRoot> with the
+ * key it returns.
  *
  * Fluent's loadTheme mutates a module-level theme; it does not re-render
  * anything. Components that read getTheme() during render (the header, the
- * cards) pick the new value up only on their next render. The render that
- * first sees new settings runs before this layout effect, so it still uses
- * the old theme; the forced re-render below (still before paint, so no
- * flash) makes everything pick up the new one together. Calling loadTheme
- * in the render body instead trips React's "cannot update a component while
- * rendering a different component" warning.
+ * cards) pick the new value up only on their next render, and a memoized
+ * one may not get a next render. So the returned key changes only AFTER
+ * loadTheme has run: the render that first sees new settings still returns
+ * the old key; this layout effect loads the theme and then switches the key,
+ * and <FluentThemeRoot> remounts the tree under the new theme (still before
+ * paint, so no flash). Returning the new key straight away remounted the
+ * tree while the old theme was still loaded, and anything memoized kept the
+ * old colours. Calling loadTheme in the render body instead trips React's
+ * "cannot update a component while rendering a different component" warning.
  */
 export function useFluentTheme(themes: Record<string, ThemeBuilder> = THEMES): string {
   const { settings } = useSettings();
+  const key = `${settings.theme}${settings.fontSize}`;
+  const [appliedKey, setAppliedKey] = React.useState(key);
   const [, forceRerender] = React.useReducer((n: number) => n + 1, 0);
   React.useLayoutEffect(() => {
     applyTheme(settings, themes);
-    forceRerender();
+    // First mount: same key, so re-render (nothing has rendered against a
+    // stale theme that a remount would need to replace).
+    if (key === appliedKey) forceRerender();
+    else setAppliedKey(key);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.theme, settings.fontSize]);
-  return `${settings.theme}${settings.fontSize}`;
+  return appliedKey;
 }
 
 /**

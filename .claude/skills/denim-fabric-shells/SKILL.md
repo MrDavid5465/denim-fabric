@@ -54,6 +54,31 @@ buttons and your own `confirmAsync()` calls share it).
   designer). `MasterDetail` does that itself.
 - Kiosk routes (`/kiosk/<path>`) render without the sidebar.
 
+### Motion
+
+The shell animates briefly, `transform`/`opacity` only (README "Motion"):
+the wide sidebar slides with the content moving beside it, the medium
+overlay and Settings keep Fluent v8's own Panel slide and Modal fade, one
+indicator slides between selected items (sidebar, `AdminMasterDetail`'s
+list), and a phone's incoming pane slides in. Rules for anything you add:
+
+- Keep a Fluent component's own motion where it has one; otherwise use
+  `@fluentui/react-motion` (`createMotionComponent`/`createPresenceComponent`,
+  `motionTokens`). Never animate width, height, margins or `left`/`top`:
+  without GPU compositing (WebKitGTK) each frame repaints what moves, and
+  layout per frame is far worse.
+- Respect `useReducedMotion()` (core: the per-device `reduceMotion` setting
+  or the OS preference). Motion components under SidebarShell skip
+  automatically (`ShellMotionProvider`); turn off a Fluent v8 component's
+  own animation yourself (styles `animation: 'none'`/`transition: 'none'`).
+- A selection highlight that should slide: `SlidingIndicator` behind the
+  items in a `position: relative; isolation: isolate` container, and the
+  items paint no selected background of their own, not even on hover.
+- Default an app to reduced motion with `defaultSettings={{ reduceMotion: true }}`.
+- Measure: `localStorage.debugPerf = '1'` logs `[perf] anim <name>: ms,
+  frames, long frames (max)` per animation (`perfMotionProps(name)` for your
+  own motion components).
+
 ### Touch and keyboard
 
 The rig touchscreen and phones are first-class: keep every new control at
@@ -158,7 +183,8 @@ application is). Apps that aren't lists don't use MasterDetail.
 ## 5. Settings dialog
 
 `SettingsDialog` renders the core's `useSettingsForm`: a General tab
-(colour, mode, font size, default page, plus `settingsGeneralFields`) and
+(colour, mode, font size, default page, "Reduce motion (this device)", plus
+`settingsGeneralFields`) and
 one Pivot tab per `settingsTabs` entry, saved together. Writing tabs is the
 core skill's section 5. Keep it for global preferences; a feature's own
 configuration is its own application.
@@ -230,6 +256,10 @@ function QuickAddProfile() {
 Drive the app with typical-admin-fabric's `playwright-verify` skill at
 1400px, 900px and 390px (with `hasTouch`/`isMobile`): the sidebar groups,
 a list -> detail -> edit -> save, the phone's drill-in and Back, a deep
-link, a non-list app, and no console errors. Long-lived GraphQL
+link, a non-list app, and no console errors. For motion, also run with
+`reducedMotion: 'reduce'` (everything instant) and with CPU throttling
+(`Emulation.setCPUThrottlingRate`) and the `debugPerf` logs; slow the
+animations with CDP's `Animation.setPlaybackRate` to screenshot them frame
+by frame. Long-lived GraphQL
 subscriptions keep the network busy, so wait for `load` plus a settle time,
 not `networkidle`.

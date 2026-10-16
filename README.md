@@ -84,7 +84,7 @@ Versions known to work together:
 
 ```bash
 npm i react@^18.3.1 react-dom@^18.3.1 \
-  @fluentui/react@^8.125.6 \
+  @fluentui/react@^8.125.6 @fluentui/react-motion@^9.16.4 \
   @apollo/client@^4.2.3 graphql@^16.14.2 rxjs@^7.8.2 \
   react-router@^7.17.0 react-router-dom@^7.17.0 \
   match-sorter@^8.3.0 date-fns@^4.4.0 \
@@ -98,6 +98,9 @@ npm i -D typescript@~5.6.2 vite@^6 @vitejs/plugin-react@^4.3.4 \
   folder even if you never render `Photo`.
 - `@fluentui/react-hooks` and `graphql-tag` come in with `@fluentui/react`
   and `@apollo/client`; don't install them.
+- `@fluentui/react-motion` is Fluent v9's motion library (stable). It has
+  no v9 component dependencies and runs beside Fluent v8; the shells use it
+  for their own motion (see "Motion").
 - TypeScript needs Vite's client types: `"types": ["vite/client"]` in
   `tsconfig.json`. Everything type-checks under Vite's default strict
   `tsconfig` (`strict`, `noUnusedLocals`, `noUnusedParameters`).
@@ -517,6 +520,9 @@ pass `applicationFields=""` if your backend doesn't have them.
   focus is visible. The Settings dialog is in the sidebar footer; each
   application keeps its own configuration in its own pages.
 - `/kiosk/<path>` shows the application without the sidebar.
+- It moves, briefly (see "Motion"): the sidebar slides, the selection
+  slides between items, a phone's panes slide in. The "Reduce motion"
+  setting, or the OS preference, turns all of it off.
 
 ### `SidebarShell` props
 
@@ -611,6 +617,81 @@ denim's README has the full table of moved imports (`denim/lib` ->
 `components/ConfirmDialog` -> `confirmAsync`/`ConfirmDialogHost` from
 denim-fabric, themes, `getCurrentApp` -> `useNav().activeApp`).
 
+## Motion
+
+Every motion moves `transform` or `opacity` of one element and never
+animates layout, so nothing is re-laid out per frame. Without GPU
+compositing (WebKitGTK on some Linux drivers) each frame still repaints what
+moves, so each one moves as little as it can. Where a Fluent v8 component
+has motion of its own, the shell keeps it; `@fluentui/react-motion` and its
+tokens (`durationNormal`/`durationFast`, the decelerate curves) cover the
+rest.
+
+| What | How |
+|---|---|
+| Medium layout's overlay sidebar | Fluent's own `Panel` slide (and its scrim's fade), in and out |
+| Settings dialog | Fluent's own `Modal` fade-out on close (dim layer included). On open, only the dialog surface fades and scales from 0.96 (a CSS animation on the Modal's surface element, with motion tokens); the dim layer appears at once. The content doesn't re-render during the fade-out. |
+| Wide sidebar collapse/expand | the full panel slides by `264 - 60`px and the content moves with it (`translateX`, same clock and curve), while the icon rail fades over the panel's left end. The layout keeps its starting width during the slide and changes once at the end, in the same frame that drops the transforms. Toggling mid-slide reverses from where it is. (`SidebarShell/slide.ts`: the Web Animations API with the motion tokens, because a motion component computes its keyframes once, at mount.) |
+| Selected sidebar item, selected list row (`AdminMasterDetail`) | one indicator (background and accent bar) behind the items slides to the new one (FLIP: `translate` and `scale` from the old rect). It is the only thing drawing the selection's background; the item's bold text changes at once. A quick second click retargets from where it is. It snaps, without sliding, on first render, after a theme change or collapse, and when the item only moved (`shared/motion.tsx`, `SlidingIndicator`). |
+| Phone drill-in | the incoming pane slides 32px and fades in: from the right going in (menu to application, list to detail), from the left coming back. The pane going away just goes. Not on the page the app opened on. |
+
+**Reduce motion.** The core's `reduceMotion` setting ("Reduce motion (this
+device)" on the General tab) and the OS's `prefers-reduced-motion` both turn
+all of the above off, Fluent's own Panel and Modal motion included (the
+panel and dialog then also hide at once on close). The setting is a
+*device* setting (`DEVICE_SETTINGS` in the core): it stays in this browser
+even with `settingsSource="server"`, and is never sent to `updateSettings`,
+so the backend needs no field. A desktop webview without GPU compositing may
+want it while a phone on the same server doesn't. Default an app to reduced
+motion with `defaultSettings={{ reduceMotion: true }}`. In your own
+components, `useReducedMotion()` (core) says whether to animate, and
+`<ShellMotionProvider>` (SidebarShell renders one around everything) puts
+`@fluentui/react-motion` components below it into "skip" while it's true.
+
+## Measuring the shell's interactions
+
+SidebarShell can time its own interactions in any browser or webview,
+including one without devtools. In the console run
+`localStorage.debugPerf = '1'` and reload; `localStorage.removeItem('debugPerf')`
+and a reload turn it off. (In the Tauri window, open the inspector with
+right-click > Inspect Element, or Ctrl+Shift+I, in a debug build.) Each
+interaction then logs lines like:
+
+```
+[perf] sidebar-toggle: 4.1ms to commit, 18.0ms to next frame
+[perf] commit shell-sidebar update 2.3ms (base 1.9ms)
+[perf] anim sidebar-expand: 205ms, 13 frames, 0 long (max 17ms)
+```
+
+- The interactions are `sidebar-toggle`, `overlay-open`/`overlay-close`
+  (the medium layout's menu) and `settings-open`/`settings-close`.
+- "to commit" is the time from the click until React has changed the DOM.
+  "to next frame" adds style, layout and paint, as far as
+  `requestAnimationFrame` can see them.
+- `commit <part>` comes from React Profilers around `shell-sidebar`,
+  `shell-content` (the page) and `settings-dialog`. It shows how long that
+  part took to render, and its un-memoized cost ("base"). A part that
+  doesn't log didn't re-render.
+- `anim <name>` is one animation, logged when it ends: its length, the
+  frames drawn meanwhile (`requestAnimationFrame` callbacks), how many took
+  over 32ms (two missed 60Hz frames: visible stutter) and the worst one.
+  `(interrupted)` means it was reversed or cut short. The names are
+  `sidebar-expand`/`sidebar-collapse`, `sidebar-selection`,
+  `list-selection`, `drill-in-right`/`drill-in-left`,
+  `overlay-open`/`overlay-close` and `settings-enter`/`settings-exit`. The
+  last four, and the drill-in, are timed until no animation is running on
+  the page, so they include anything else animating meanwhile (Fluent fades
+  rows in when a list shows them, for instance). Fluent motion components
+  can log the same way with `perfMotionProps(name)` from `shared/perf`.
+- Each timing is also a `performance.measure`, so it appears in a devtools
+  performance recording.
+
+The shell keeps the work around its motion small. Toggling the sidebar or
+opening Settings doesn't re-render the page. Variant and state classes are
+merged with `mergeStyles` rather than listed side by side, because which of
+two Fluent classes wins depends on rule order, and a theme change reorders
+the rules.
+
 ## Verification
 
 Both setups above type-check under Vite's strict `tsconfig` with the peer
@@ -626,6 +707,15 @@ README):
   900px and 390px with touch emulation (drill-in, back bar, browser Back and
   Forward, deep links); a non-list app filling the area; re-visiting apps;
   Settings from the footer; 44px targets; visible focus. No console errors.
+- Motion (Chromium with 6x CPU throttling, at 1400px, 900px and 390px
+  with touch): every animation above, frame by frame; the panel's edge and
+  the content's edge together on every frame of a collapse/expand, no
+  layout during the slide, one layout change at its end and no jump; a
+  quick second toggle reversing; only one selection highlight on screen at
+  any frame, also with three quick clicks and from the keyboard; the
+  indicator exact after a theme change and in the rail; the OS preference
+  and the setting each turning everything off; the setting kept per device
+  and never sent to the server.
 - Master-detail: one back control on a phone (Edit and Delete kept); display
   labels; page, sort and filter kept across opening and closing a detail
   (and a save in it) at 1400px, 900px and 390px, with the closed row
@@ -639,9 +729,9 @@ README):
 |---|---|
 | `index.ts` | public API; also re-exports the whole core. Default export: `TopBarShell` |
 | `TopBarShell/` | the shell, `Header`, `NavBar` (current app's links), `AppNavBar` (waffle panel), `HeaderLink` |
-| `SidebarShell/` | the shell, `Sidebar` (full / rail / screen variants, `StatusDot`), `layout.ts` (breakpoints, back-bar context), `FullBleed` |
+| `SidebarShell/` | the shell, `Sidebar` (full / rail / screen variants, `StatusDot`), `layout.ts` (breakpoints, back-bar context), `slide.ts` (the wide collapse/expand slide), `FullBleed` |
 | `MasterDetail/` | `MasterDetail`, `AdminMasterDetail` (ReactiveAdmin), `useDetailRoute` |
-| `shared/` | `SettingsDialog`, `Splash`, `theme.tsx` (`applyTheme`, `useFluentTheme`, `FluentThemeRoot`, favicon), `ConfirmDialog` (re-export), `Logo`, icon registration |
+| `shared/` | `SettingsDialog`, `Splash`, `theme.tsx` (`applyTheme`, `useFluentTheme`, `FluentThemeRoot`, favicon), `ConfirmDialog` (re-export), `Logo`, icon registration, `motion.tsx` (`ShellMotionProvider`, `SlidingIndicator`, `DrillIn`), `perf.tsx` (the `debugPerf` timings) |
 | `themes/` | `THEMES`, `buildTheme`, `PALETTES` (Fluent palettes for the core's theme keys) |
 | `Photo/` | image picker with EXIF rotation, cropper, download and remove |
 | `lib/` | convenience re-exports (Fluent, react-router, Apollo hooks, typical-admin-fabric `Form`/`List`/cards), `getStyle()`, two older single themes |

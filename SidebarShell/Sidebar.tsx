@@ -8,6 +8,7 @@ import { FontIcon, IconButton, mergeStyles, mergeStyleSets, useTheme } from '@fl
 import type { ITheme } from '@fluentui/react';
 import { useApplications, useAppStatus, useNav } from '../../denim';
 import type { IApplication, IAppStatus } from '../../denim';
+import { SlidingIndicator } from '../shared/motion';
 
 export type SidebarVariant = 'full' | 'rail' | 'screen';
 
@@ -64,7 +65,16 @@ export const getSidebarStyles = (theme: ITheme) => {
       textOverflow: 'ellipsis',
     },
     brand: { width: 28, height: 28, fill: palette.themePrimary, flex: 'none' },
-    scroll: { flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' },
+    // Positioned and isolated: the selection indicator is drawn in here,
+    // behind the items (z-index -1), and scrolls with them.
+    scroll: {
+      flex: 1,
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      padding: '8px 0',
+      position: 'relative',
+      isolation: 'isolate',
+    },
     group: { padding: '4px 0 8px' },
     groupHeading: {
       margin: 0,
@@ -86,6 +96,7 @@ export const getSidebarStyles = (theme: ITheme) => {
       margin: '1px 6px',
       borderRadius: 4,
       borderLeft: '3px solid transparent',
+      position: 'relative',
       color: palette.neutralPrimary,
       textDecoration: 'none',
       fontSize: theme.fonts.mediumPlus.fontSize,
@@ -96,11 +107,19 @@ export const getSidebarStyles = (theme: ITheme) => {
       },
     },
     railItem: { justifyContent: 'center', padding: 0, gap: 0, position: 'relative', minWidth: TOUCH },
+    // The selected look (background and accent bar) is drawn ONLY by the
+    // shared indicator behind the item, which slides between items; the
+    // item paints neither, not even hovered (the item under the pointer is
+    // the one just clicked, and would show the selection before the
+    // indicator arrives). Bold text changes at once.
     itemActive: {
-      background: palette.neutralLight,
-      borderLeftColor: palette.themePrimary,
       fontWeight: 600,
-      selectors: { ':hover': { background: palette.neutralQuaternaryAlt } },
+      selectors: { ':hover': { background: 'transparent' }, ':active': { background: 'transparent' } },
+    },
+    indicator: {
+      background: palette.neutralLight,
+      borderLeft: `3px solid ${palette.themePrimary}`,
+      borderRadius: 4,
     },
     icon: { fontSize: 20, width: 24, textAlign: 'center', flex: 'none', color: palette.themePrimary },
     letter: {
@@ -225,10 +244,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { groups, ready } = useApplications();
   const nav = useNav();
   const rail = variant === 'rail';
+  const scrollRef = React.useRef<HTMLDivElement>(null);
 
+  // Variants and states are merged into ONE class with mergeStyles, never
+  // listed as two class names. Two classes setting the same property are
+  // decided by the order Fluent inserted their rules, and a theme change
+  // reorders them: a theme-independent class (railItem) keeps its early rule
+  // while the themed one (item) gets a new, later rule and wins. That is how
+  // the rail's items picked up the full sidebar's padding after a theme
+  // change and pushed their icons off-centre.
   return (
     <nav className={s.root} aria-label="Applications">
-      <div className={`${s.header} ${rail ? s.railHeader : ''}`}>
+      <div className={mergeStyles(s.header, rail && s.railHeader)}>
         {!rail && Brand && <Brand className={s.brand} />}
         {!rail && <span className={s.title}>{title}</span>}
         {onToggle && (
@@ -242,7 +269,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      <div className={s.scroll}>
+      <div className={s.scroll} ref={scrollRef}>
+        <SlidingIndicator
+          containerRef={scrollRef}
+          selector="[data-denim-selected]"
+          className={s.indicator}
+          perfName="sidebar-selection"
+        />
         {!ready && <div className={s.groupHeading}>Loading…</div>}
         {groups.map((group, gi) => (
           <div key={group.name} className={s.group} role="group" aria-label={group.name}>
@@ -254,8 +287,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <li key={app.path}>
                     <Link
                       to={nav.appUrl(app)}
-                      className={`${s.item} ${rail ? s.railItem : ''} ${active ? s.itemActive : ''}`}
+                      className={mergeStyles(s.item, rail && s.railItem, active && s.itemActive)}
                       aria-current={active && !nav.activeLink ? 'page' : undefined}
+                      data-denim-selected={active || undefined}
                       aria-label={rail ? app.name : undefined}
                       title={rail ? app.name : undefined}
                       onClick={onNavigate}
@@ -272,7 +306,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <li key={l.path}>
                               <Link
                                 to={nav.linkUrl(app, l)}
-                                className={`${s.link} ${linkActive ? s.linkActive : ''}`}
+                                className={mergeStyles(s.link, linkActive && s.linkActive)}
                                 aria-current={linkActive ? 'page' : undefined}
                                 onClick={onNavigate}
                               >
@@ -295,8 +329,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {!rail && Footer && <Footer />}
         <button
           type="button"
-          // mergeStyles, not two class names: the rail's centring must win over
-          // the button's own alignment regardless of stylesheet order.
           className={mergeStyles(s.footerButton, rail && s.railItem)}
           onClick={onOpenSettings}
           aria-label={rail ? 'Settings' : undefined}
