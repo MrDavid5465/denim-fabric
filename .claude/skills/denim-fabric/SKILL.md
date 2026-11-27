@@ -132,7 +132,7 @@ application is). Apps that aren't lists don't use MasterDetail.
 - A custom `themes` map must keep the `<mode>-<color>` keys plus `default`;
   each value is `(fontSize) => IPartialTheme` (`buildTheme(mode, color)`
   shows the shape). `light` / `dark` (the two old single themes) are gone.
-- `applyTheme(settings, themes)`, `useFluentTheme(themes)` and
+- `applyTheme(settings, themes, favicon?)`, `useFluentTheme(themes, favicon?)` and
   `FluentThemeRoot` are exported for a bar of your own.
 
 ## 4. Settings dialog

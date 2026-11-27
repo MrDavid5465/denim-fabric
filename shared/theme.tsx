@@ -16,7 +16,10 @@ const FAVICON_SVG = (color: string) =>
   `<circle cx="40" cy="45" r="3" fill="${color}"/>` +
   `</svg>`;
 
-export function setFaviconColor(color: string): void {
+/** Builds the tab icon's SVG markup from the theme's primary colour. */
+export type FaviconBuilder = (color: string) => string;
+
+export function setFaviconColor(color: string, favicon: FaviconBuilder = FAVICON_SVG): void {
   let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
   if (!link) {
     link = document.createElement('link');
@@ -24,18 +27,19 @@ export function setFaviconColor(color: string): void {
     document.head.appendChild(link);
   }
   link.type = 'image/svg+xml';
-  link.href = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG(color))}`;
+  link.href = `data:image/svg+xml,${encodeURIComponent(favicon(color))}`;
 }
 
 /** Loads the Fluent theme for `{ theme, fontSize }` settings. */
 export function applyTheme(
   settings: { theme?: string; fontSize?: number },
   themes: Record<string, ThemeBuilder> = THEMES,
+  favicon?: FaviconBuilder,
 ) {
   const build = themes[settings.theme || 'default'] || themes.default;
   const theme = build(settings.fontSize || 1);
   loadTheme(theme);
-  if (theme.palette?.themePrimary) setFaviconColor(theme.palette.themePrimary);
+  if (theme.palette?.themePrimary) setFaviconColor(theme.palette.themePrimary, favicon);
   return theme;
 }
 
@@ -56,13 +60,16 @@ export function applyTheme(
  * old colours. Calling loadTheme in the render body instead trips React's
  * "cannot update a component while rendering a different component" warning.
  */
-export function useFluentTheme(themes: Record<string, ThemeBuilder> = THEMES): string {
+export function useFluentTheme(
+  themes: Record<string, ThemeBuilder> = THEMES,
+  favicon?: FaviconBuilder,
+): string {
   const { settings } = useSettings();
   const key = `${settings.theme}${settings.fontSize}`;
   const [appliedKey, setAppliedKey] = React.useState(key);
   const [, forceRerender] = React.useReducer((n: number) => n + 1, 0);
   React.useLayoutEffect(() => {
-    applyTheme(settings, themes);
+    applyTheme(settings, themes, favicon);
     // First mount: same key, so re-render (nothing has rendered against a
     // stale theme that a remount would need to replace).
     if (key === appliedKey) forceRerender();

@@ -7,6 +7,7 @@ import type React from 'react';
 import type { DenimShellProps } from '../../denim';
 import type { ThemeBuilder } from '../themes';
 import type { IconProps } from './Logo';
+import type { FaviconBuilder } from './theme';
 import type { IBreakpoints } from './layout';
 
 /**
@@ -26,6 +27,8 @@ export interface BrandProps {
 export interface ShellProps extends DenimShellProps {
   /** Theme builders keyed `<mode>-<color>` plus `default`. Defaults to THEMES. (all bars) */
   themes?: Record<string, ThemeBuilder>;
+  /** The tab icon's SVG for a theme colour, for apps with their own icon. Defaults to the Denim mark. (all bars) */
+  favicon?: FaviconBuilder;
   /** Splash-screen logo. (all bars) */
   Logo?: React.FC<IconProps>;
   /** Your product's icon: next to the waffle button (top bar); in the sidebar it receives the title as `children`, so logo and title are one link. */

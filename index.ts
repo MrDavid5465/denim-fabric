@@ -53,6 +53,7 @@ export type { SettingsDialogProps } from './shared/SettingsDialog';
 export { Splash } from './shared/Splash';
 export type { SplashProps } from './shared/Splash';
 export { applyTheme, useFluentTheme, FluentThemeRoot, setFaviconColor } from './shared/theme';
+export type { FaviconBuilder } from './shared/theme';
 export { confirmAsync, ConfirmDialogHost } from './shared/ConfirmDialog';
 export type { ConfirmOptions } from './shared/ConfirmDialog';
 export { default as Logo } from './shared/Logo';
